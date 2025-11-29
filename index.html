@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>单词记忆游戏</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 自定义字体 */
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+        }
+        /* 卡片翻转的核心样式 */
+        .card {
+            position: relative; /* 添加：让卡片正面和背面可以重叠 */
+            transform-style: preserve-3d;
+            transition: transform 0.6s;
+        }
+        .card-face {
+            position: absolute; /* 添加：让卡片正面和背面可以重叠 */
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden; /* 兼容Safari */
+        }
+        .card-front {
+            transform: rotateY(180deg);
+        }
+        .card.is-flipped {
+            transform: rotateY(180deg);
+        }
+        /* 隐藏滚动条 */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-4xl mx-auto"> <!-- 调整了最大宽度 -->
+        <h1 class="text-3xl md:text-4xl font-bold text-center text-blue-600 mb-6">单词记忆游戏 (随机10词)</h1>
+        
+        <!-- 游戏主面板 -->
+        <div id="game-board" class="grid grid-cols-4 sm:grid-cols-5 gap-2 md:gap-4 mb-6"> <!-- 调整了网格布局 -->
+            <!-- 卡片将由JS动态生成 -->
+        </div>
+
+        <!-- 控制按钮 -->
+        <div class="flex justify-center space-x-4">
+            <button id="restart-button" class="px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-300">
+                换一组 (10词)
+            </button>
+        </div>
+    </div>
+
+    <!-- 游戏胜利弹窗 -->
+    <div id="win-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50 p-4">
+        <div class="bg-white rounded-lg shadow-2xl p-8 max-w-sm w-full text-center">
+            <h2 class="text-3xl font-bold text-green-500 mb-4">恭喜你！</h2>
+            <p class="text-lg text-gray-700 mb-6">你已成功匹配本组所有单词！</p>
+            <button id="play-again-button" class="w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 transition-colors duration-300">
+                再玩一组
+            </button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const gameBoard = document.getElementById('game-board');
+            const restartButton = document.getElementById('restart-button');
+            const winModal = document.getElementById('win-modal');
+            const playAgainButton = document.getElementById('play-again-button');
+
+            // 包含所有单词和图片链接的数组
+            const allWords = [
+                { word: 'mammal', img: 'mammal.png' },
+                { word: 'prey', img: 'prey.png' },
+                { word: 'extinct', img: 'extinct.png' },
+                { word: 'fish', img: 'fish.png' },
+                { word: 'warm-blooded', img: 'warm-blooded.png' },
+                { word: 'carnivore', img: 'carnivore.png' },
+                { word: 'habitat', img: 'habitat.png' },
+                { word: 'bird', img: 'bird.png' },
+                { word: 'omnivore', img: 'omnivore.png' },
+                { word: 'herbivore', img: 'herbivore.png' },
+                { word: 'cold-blooded', img: 'cold-blooded.png' },
+                { word: 'insect', img: 'insect.png' },
+                { word: 'amphibian', img: 'amphibian.png' },
+                { word: 'endangered', img: 'endangered.png' },
+                { word: 'reptile', img: 'reptile.png' },
+                { word: 'cooperate', img: 'cooperate.png' },
+                { word: 'healthy', img: 'healthy.png' },
+                { word: 'usually', img: 'usually.png' },
+                { word: 'coach', img: 'coach.png' },
+                { word: 'practise', img: 'practise.png' },
+                { word: 'enjoyable', img: 'enjoyable.png' },
+                { word: 'equipment', img: 'equipment.png' },
+                { word: 'referee', img: 'referee.png' },
+                { word: 'patient', img: 'patient.png' },
+                { word: 'competition', img: 'competition.png' },
+                { word: 'skill', img: 'skill.png' },
+                { word: 'injuries', img: 'injuries.png' }
+            ];
+
+            let cards = [];
+            let flippedCards = [];
+            let matchedPairs = 0;
+            let lockBoard = false; // 锁定面板，防止快速点击
+            let currentGameWords = []; // 存放当前局的游戏单词
+
+            // Fisher-Yates 洗牌算法
+            function shuffle(array) {
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            }
+
+            // 创建游戏面板
+            function createGameBoard() {
+                // 重置
+                cards = [];
+                matchedPairs = 0;
+                gameBoard.innerHTML = '';
+                winModal.classList.add('hidden');
+
+                // --- 新增：随机选取10个单词 ---
+                // 1. 先打乱总列表
+                let shuffledAllWords = shuffle([...allWords]);
+                // 2. 选取前10个
+                currentGameWords = shuffledAllWords.slice(0, 10);
+                // --- 结束新增 ---
+
+                // 为每个单词创建一张单词卡和一张图片卡
+                currentGameWords.forEach(item => {
+                    cards.push({ type: 'word', id: item.word, content: item.word });
+                    cards.push({ type: 'image', id: item.word, content: item.img });
+                });
+
+                // 洗牌 (洗20张卡片)
+                shuffle(cards);
+
+                // 生成卡片HTML
+                cards.forEach(card => {
+                    const cardElement = document.createElement('div');
+                    cardElement.classList.add('card', 'aspect-square', 'cursor-pointer'); /* 修改：使用 'aspect-square' 替代 'aspect-w-1', 'aspect-h-1' */
+                    cardElement.dataset.id = card.id;
+
+                    // 卡片背面 (可见面)
+                    const cardBack = document.createElement('div');
+                    cardBack.classList.add('card-face', 'card-back', 'w-full', 'h-full', 'bg-blue-500', 'rounded-lg', 'flex', 'items-center', 'justify-center', 'shadow-md');
+                    cardBack.innerHTML = `<span class="text-3xl text-white font-bold">?</span>`;
+
+                    // 卡片正面 (隐藏面)
+                    const cardFront = document.createElement('div');
+                    cardFront.classList.add('card-face', 'card-front', 'w-full', 'h-full', 'bg-white', 'rounded-lg', 'shadow-md', 'flex', 'items-center', 'justify-center', 'p-2');
+
+                    if (card.type === 'image') {
+                        // --- 修复：改回使用您上传的图片文件名 ---
+                        // card.content 的值现在是 "mammal.jpg", "prey.jpg" 等
+                        // 这需要在本地文件夹中才能正确加载
+                        cardFront.innerHTML = `<img src="${card.content}" alt="${card.id}" class="max-w-full max-h-full object-contain rounded-md" onerror="this.parentElement.innerHTML='<span class=\\'text-red-500 text-xs text-center\\'>图片 ${card.id} <br>加载失败<br>(请在本地打开)</span>'"/>`;
+                        
+                    } else {
+                        // 单词卡
+                        cardFront.innerHTML = `<span class="text-sm md:text-base font-semibold text-center break-all">${card.content}</span>`; // 缩小了字体以便显示
+                    }
+
+                    cardElement.appendChild(cardBack);
+                    cardElement.appendChild(cardFront);
+
+                    cardElement.addEventListener('click', handleCardClick);
+                    gameBoard.appendChild(cardElement);
+                });
+            }
+
+            // 处理卡片点击
+            function handleCardClick(e) {
+                if (lockBoard) return;
+                const clickedCard = e.currentTarget;
+                
+                // 防止点击已翻开或已匹配的卡
+                if (clickedCard.classList.contains('is-flipped') || clickedCard.classList.contains('is-matched')) {
+                    return;
+                }
+
+                flipCard(clickedCard);
+                flippedCards.push(clickedCard);
+
+                if (flippedCards.length === 2) {
+                    lockBoard = true;
+                    setTimeout(checkForMatch, 1000);
+                }
+            }
+
+            // 翻开卡片
+            function flipCard(card) {
+                card.classList.add('is-flipped');
+            }
+
+            // 翻回卡片
+            function unflipCards() {
+                flippedCards.forEach(card => card.classList.remove('is-flipped'));
+                flippedCards = [];
+                lockBoard = false;
+            }
+
+            // 检查是否匹配
+            function checkForMatch() {
+                const [card1, card2] = flippedCards;
+                const isMatch = card1.dataset.id === card2.dataset.id;
+
+                if (isMatch) {
+                    // 匹配成功
+                    card1.classList.add('is-matched', 'opacity-50');
+                    card2.classList.add('is-matched', 'opacity-50');
+                    matchedPairs++;
+                    flippedCards = [];
+                    lockBoard = false;
+
+                    // 检查是否胜利
+                    if (matchedPairs === currentGameWords.length) { // <-- 修改了这里的逻辑
+                        setTimeout(() => winModal.classList.remove('hidden'), 500);
+                    }
+                } else {
+                    // 匹配失败
+                    unflipCards();
+                }
+            }
+
+            // 重新开始游戏
+            function restartGame() {
+                lockBoard = false;
+                flippedCards = [];
+                createGameBoard();
+            }
+
+            // 绑定事件
+            restartButton.addEventListener('click', restartGame);
+            playAgainButton.addEventListener('click', restartGame);
+
+            // 初始加载
+            createGameBoard();
+        });
+    </script>
+</body>
+</html>
